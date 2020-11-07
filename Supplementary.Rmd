@@ -1,0 +1,243 @@
+---
+title: "project part2"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(mltools)
+library(data.table)
+library(DAAG)
+```
+
+
+
+```{r}
+auto <- read.csv("C:/Users/John3/Documents/SQ 2020 CLASSES/STA160/imports-85.data",sep=",",header = FALSE)
+auto
+colnames(auto) <-c("symboling","normalized_losses","make","fuel_type","aspiration","num_of_doors","body_style","drive_wheels","engine_location","wheelbase","length","width","height","curb_weight","engine_type","num_of_cyl","engine_size","fuel_system","bore","stroke","compression_ratio","horsepower","peak_rpm","city_mpg","highway_mpg","price")
+auto[auto == "?"]<- NA
+auto <- auto %>% mutate_at(vars(peak_rpm,bore,stroke,horsepower,price, normalized_losses),as.character) %>%  mutate_at(vars(peak_rpm,bore,stroke,horsepower,price, normalized_losses),as.numeric)
+autos_na <- auto %>%
+  select_if(~any(is.na(.)))
+autonona <-na.omit(auto)
+
+autos_na
+```
+
+```{r}
+#replacing NAs with means of the columns 
+price.mean <- mean(auto$price, na.rm = TRUE)
+norm.mean <- mean(auto$normalized_losses, na.rm =TRUE)
+bore.mean <- mean(auto$bore, na.rm = TRUE)
+stroke.mean <- mean(auto$stroke,na.rm = TRUE)
+hp.mean <- mean(auto$horsepower,na.rm = TRUE)
+rpm.mean <- mean(auto$peak_rpm,na.rm = TRUE)
+auto$price[is.na(auto$price)] = price.mean
+auto$normalized_losses[is.na(auto$normalized_losses)] = norm.mean
+auto$bore[is.na(auto$bore)] = bore.mean
+auto$stroke[is.na(auto$stroke)] = stroke.mean
+auto$horsepower[is.na(auto$horsepower)]= hp.mean
+auto$peak_rpm[is.na(auto$peak_rpm)] = rpm.mean
+#remove the leftover NAs
+auto = na.omit(auto)
+
+#replacing NAs with the mean of the column or the median
+```
+
+
+lets check out some variables that are can be related to determining
+```{r}
+library(dplyr)
+
+auto
+autowithoutfactor<- auto %>% select(symboling,normalized_losses,wheelbase,length,width, height, curb_weight, engine_size, bore, stroke, compression_ratio, horsepower, peak_rpm, city_mpg, highway_mpg,price)
+autowithoutfactor
+auto %>% select(symboling,normalized_losses,wheelbase,length,width, height, curb_weight, engine_size, bore, stroke, compression_ratio, horsepower, peak_rpm, city_mpg, highway_mpg,price)
+
+```
+
+one hot encoding certain factor columns that have more than 2 factors
+```{r}
+data.table(auto)
+onehotauto <- one_hot(data.table(auto))
+onehotauto
+#onehotauto1 <- onehotauto %>% select(fuel_type_gas, aspiration_std,num_of_doors_two,engine_location_front,wheelbase, length, width, height, curb_weight,
+
+```
+
+```{r}
+model <- lm(price~.,data = onehotauto)
+cv.lm
+cv_model <- cv.lm(data= onehotauto, model, m=3)
+full_model1<- lm(price~.,data = auto)
+model2 <- lm((1/price)~.,data= autowithoutfactor)
+summary(model)
+summary(full_model1)
+summary(model2)
+par(mfrow = c(2,2))
+plot(full_model1)
+
+```
+
+```{r}
+library(car)
+library(plotly)
+library(corrplot)
+
+ld.vars <- attributes(alias(full_model)$Complete)$dimnames[[1]]
+ld.vars
+formula.new <- as.formula(
+    paste(
+        paste(deparse(formula()),collapse=""), 
+        paste(ld.vars, collapse="-"),
+        sep="-"
+    )
+)
+
+fit.new <-lm(formula.new)
+
+vif(model)
+vif(full_model1)
+vif(model2)
+#we have achieved perfect multicollinearity gotta try ridge or something else to fight this lol
+
+cor1= cor(auto)
+corrplot.mixed(cor1 )
+```
+```{r}
+#lets try this package it easier lmao
+library(olsrr)
+ols_regress(log(price)~.,data = autowithoutfactor)
+ols_plot_diagnostics(full_model)
+ols_plot_diagnostics(full_model)
+ols_vif_tol(model3) %>% arrange(desc(VIF))
+cor2 = cor(autowithoutfactor)
+corrplot.mixed(cor2,lower.col = "black")
+```
+```{r}
+library(ggplot2)
+ggplot(data = auto,aes(city_mpg,price)) +
+  geom_point(aes(color = make)) +
+  geom_smooth(se = FALSE)
+ggplot(data = auto,aes(, price))+
+  geom_point(aes(color = make)) +
+  geom_smooth(se = FALSE)
+
+
+ggplot(auto, aes(x=price, y= make)) +
+  geom_bar(stat="identity", fill="steelblue", width = .5)+
+  theme_minimal() 
+table(auto$make)
+qplot(auto$make,xlab = "make", ylab = "count") + coord_flip()
+ggplot(autonona, aes(x=price, y= make)) +
+  geom_bar(stat="identity", fill="steelblue", width = .5)+
+  theme_minimal()
+```
+```{r}
+
+ggplot(data = auto, aes(x = make, y = price)) +
+  geom_boxplot() +
+  xlab('Origin') +
+  ylab('Price') +
+  ggtitle('Prices by Region')
+
+```
+
+
+```{r}
+#since a lot of the predictors have high correlation and the vifs are extremely high we indeed have multicollinearity between many variables.
+#dropping variables will not help with this because most of predictors related to each other so we use ridge regression/
+library(ridge)
+library(MASS)
+library(glmnet)
+model2
+linRdigeMOd <- glmnet(price ~., data = autowithoutfactor,lambda = lambdas)
+lambdas <- 10^seq(3, -2, by = -.1)
+summary(linRdigeMOd)
+plot(linRdigeMOd)
+y <-auto$price
+onehotauto
+names(onehotauto)
+x <- onehotauto %>% select(symboling,normalized_losses,aspiration_turbo, body_style_convertible,num_of_doors_two,num_of_cyl_four,fuel_type_gas,wheelbase, length, width, height,curb_weight,engine_type_ohc, engine_size, fuel_system_mpfi,bore,stroke, compression_ratio, horsepower,peak_rpm,city_mpg,highway_mpg ) %>% data.matrix()
+x <- onehotauto %>% select(1:76) %>% data.matrix()
+
+fit <- glmnet(x,y, alpha = 0, lambda = lambdas)
+cv_fit<-cv.glmnet(x,y, alpha = 0, lambda = lambdas)
+summary(fit)
+summary(cv_fit)
+plot(fit)
+plot(cv_fit)
+```
+```{r}
+opt_lambda <- cv_fit$lambda.min
+opt_lambda
+y_predicted <- predict(fit, s = opt_lambda, newx = x)
+
+# Sum of Squares Total and Error
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted - y)^2)
+sse
+# R squared
+rsq <- 1 - sse / sst
+rsq
+
+
+
+```
+
+
+```{r}
+library(MASS)
+model3 <- lm(price~., data = autowithoutfactor)
+model3
+corrplot(cor2,lower.
+vif(model3)
+
+plot(model3)
+summary(model3)
+step1<-stepAIC(model3,direction = "both", trace = FALSE)
+summary(step1)
+par(mfrow=c(2,2))
+plot(step1)
+vif(step)
+step <-stepAIC(model,direction = "both", trace = FALSE)
+summary(step)
+vif(step)
+plot(step)
+modelwovif<- lm((1/price) ~ `make_alfa-romero` + make_audi + make_bmw + make_chevrolet + make_dodge + make_isuzu + `make_mercedes-benz` +  make_mitsubishi  + make_plymouth + make_porsche + make_saab + aspiration_std +body_style_convertible+ body_style_hatchback + height + engine_type_dohc + engine_type_dohcv + num_of_cyl_five+ fuel_system_2bbl+ bore + stroke +peak_rpm , data = onehotauto)
+vif(modelwovif)
+summary(modelwovif)
+plot(modelwovif)
+```
+
+
+```{r}
+
+significantmodel<- lm(formula = (1/price) ~ `make_alfa-romero` + make_audi + make_bmw + 
+     + make_isuzu + `make_mercedes-benz` + 
+    make_mitsubishi + make_plymouth + make_porsche + make_saab + 
+    aspiration_std + body_style_hatchback + 
+    height + engine_type_dohc + engine_type_dohcv  + 
+    fuel_system_2bbl + bore + stroke , data = onehotauto)
+predict(significantmodel)
+summary(significantmodel)
+par(mfrow=c(2,2))
+plot(significantmodel)
+ols_vif_tol(significantmodel)
+length(onehotauto$`make_alfa-romero`
+```
+```{r}
+
+model4 <-lm(log(price)~symboling+normalized_losses + height + bore + stroke + compression_ratio + peak_rpm, data = autowithoutfactor)
+summary(model4)
+plot(model4)
+```
+
+ 
+
+
+
+
+
+
+
